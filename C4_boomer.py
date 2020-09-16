@@ -1,7 +1,7 @@
 import tm1637, ssd1306, time, socket, network
-from machine import Pin
+from machine import Pin, I2C
 
-class Beeper():
+class Buzzer():
 	# 此类用于控制有源蜂鸣器 
 	def __init__(self, pin_port):
 		# pin_port为一个Pin对象
@@ -17,32 +17,56 @@ class Beeper():
 	def keepBeep(self):
 		self.pin_port.off()
 
-	def stopBeep():
+	def stopBeep(self):
 		self.pin_port.on()
 
 def rcStart(AP, password, ip = '127.0.0.1', port = 24680):
+	# 创建套接字 接受http头并分析 对比激活密码
 	# start count down through remote control (http)
 	rc_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	rc_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 	rc_socket.bind((ip, port))
-	rc_socket.listen(1)
+	rc_socket.listen(1) # 最多接入一个客户端
 
 	while True:
 		controller_socket, _ = rc_socket.accept()
 		recv_data = controller_socket.recv(1024).decode() # 1024表示本次接收的最大字节数
 
-		rd_info = recv_data.splitlines()[0]
-		del recv_data
+		rd_info = recv_data.splitlines()[0] # 将全部http头内容按行分割为列表 保留第一行
+		del recv_data # 节省内存
 
-		if password in rd_info:
+		if password in rd_info: # 对比收到的内容是否符合password 符合则跳出循环并关闭套接字与AP
 			rc_socket.close()
 			AP.active(False)
 			break
 
 def setUpAP(name = 'Micropython-AP', password = '', max_c = 1):
 	ap = network.WLAN(network.AP_IF)
-	if pwd=='':
-		ap.config(essid = eid, authmode=network.AUTH_OPEN)
+	if password =='':
+		ap.config(essid = name, authmode=network.AUTH_OPEN)
 	else:
-		ap.config(essid = eid, authmode = network.AUTH_WPA_WPA2_PSK, password = pwd, max_clients = max_c)
+		ap.config(essid = name, authmode = network.AUTH_WPA_WPA2_PSK, password = password, max_clients = max_c)
 	ap.active(True)
+
+def centerCoordinate(text, width = 128, height = 64):
+	# 返回一段不分行字符串在OLED屏需要在中心显示时的坐标
+	x = (width - len(text) * 8) // 2
+	y = (height // 2) - 4
+	return int(x), int(y)
+
+# 为各设备分配GPIO并创建对象
+timer_screen = tm1637.TM1637(clk=Pin(0), dio=Pin(1))
+beeper = Buzzer(pin_port = Pin(2, Pin.OUT))
+oled_screen = ssd1306.SSD1306_I2C(128, 64, I2C(scl=Pin(3), sda=Pin(4)))
+
+def selfCheck(beeper, oled_screen, num_screen):
+	num_screen.write([127, 255, 127, 127]) # 数码管显示88:88
+	oled_screen.fill(1) # 点亮OLED屏全部像素点
+	for _ in range(3):
+		beeper.beep(0.2)
+		time.sleep(0.2)
+	time.sleep(0.8)
+	num_screen.write([0, 0, 0, 0]) # 清空数码管 OLED显示'Ready...'
+	oled_screen.text('Ready...', 0, 0)
+
+'''Self checking in progress'''
