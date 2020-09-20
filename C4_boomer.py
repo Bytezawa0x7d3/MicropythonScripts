@@ -47,12 +47,7 @@ def setUpAP(name = 'Micropython-AP', password = '', max_c = 1):
 	else:
 		ap.config(essid = name, authmode = network.AUTH_WPA_WPA2_PSK, password = password, max_clients = max_c)
 	ap.active(True)
-
-def centerCoordinate(text, width = 128, height = 64):
-	# 返回一段不分行字符串在OLED屏需要在中心显示时的坐标
-	x = (width - len(text) * 8) // 2
-	y = (height // 2) - 4
-	return int(x), int(y)
+	return ap
 
 # 为各设备分配GPIO并创建对象
 timer_screen = tm1637.TM1637(clk=Pin(0), dio=Pin(1))
@@ -62,11 +57,18 @@ oled_screen = ssd1306.SSD1306_I2C(128, 64, I2C(scl=Pin(3), sda=Pin(4)))
 def selfCheck(beeper, oled_screen, num_screen):
 	num_screen.write([127, 255, 127, 127]) # 数码管显示88:88
 	oled_screen.fill(1) # 点亮OLED屏全部像素点
+	oled_screen.show()
+
 	for _ in range(3):
 		beeper.beep(0.2)
 		time.sleep(0.2)
 	time.sleep(0.8)
-	num_screen.write([0, 0, 0, 0]) # 清空数码管 OLED显示'Ready...'
-	oled_screen.text('Ready...', 0, 0)
 
-'''Self checking in progress'''
+	num_screen.write([0, 0, 0, 0]) # 清空数码管 OLED显示'Ready...'
+	oled_screen.fill(0)
+	oled_screen.text('Ready...', 32, 0)
+	oled_screen.show()
+	time.sleep(1)
+	oled_screen.text('WAITING', 32, 9)
+	oled_screen.show()
+	beeper.beep(0.5)
