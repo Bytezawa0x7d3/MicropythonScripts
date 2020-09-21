@@ -1,4 +1,4 @@
-import tm1637, ssd1306, time, socket, network
+import tm1637, ssd1306, time, socket, network, json
 from machine import Pin, I2C
 
 class Buzzer():
@@ -20,7 +20,7 @@ class Buzzer():
 	def stopBeep(self):
 		self.pin_port.on()
 
-def rcStart(AP, password, ip = '127.0.0.1', port = 24680):
+def rcStart(AP, beeper, ip = '127.0.0.1', port = 24680, ):
 	# 创建套接字 接受http头并分析 对比激活密码
 	# start count down through remote control (http)
 	rc_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -33,12 +33,35 @@ def rcStart(AP, password, ip = '127.0.0.1', port = 24680):
 		recv_data = controller_socket.recv(1024).decode() # 1024表示本次接收的最大字节数
 
 		rd_info = recv_data.splitlines()[0] # 将全部http头内容按行分割为列表 保留第一行
+		rd_info = rd_info.split('/')[1] # 将第一行分割并提取内容
+		rd_info = rd_info[0:-5]
 		del recv_data # 节省内存
 
-		if password in rd_info: # 对比收到的内容是否符合password 符合则跳出循环并关闭套接字与AP
-			rc_socket.close()
-			AP.active(False)
-			break
+		# 最后提取完毕的数据理应是一个 字符串形式的整数 作为倒计时的分钟数
+		try:
+			# 测试是否为一个可转型的整数
+			minute = int(rd_info)
+		except:
+			# 若不可转型则不符合标准 pass后回到循环顶部等待接收下一个http头
+			for _ in range(2):
+				beeper.beep(0.1)
+				time.sleep(0.1)
+			continue
+		else:
+			# 可转型则判断是否在有效范围内
+			if minute > 99 or minute < 1:
+				for _ in range(3):
+					beeper.beep(0.1)
+					time.sleep(0.1)
+				continue
+			else:
+				# 符合条件 关闭套接字和AP并返回int形式的整数
+				rc_socket.close()
+				AP.active(False)
+				for _ in range(3):
+					beeper.beep(0.3)
+					time.sleep(0.2)
+				return minute
 
 def setUpAP(name = 'Micropython-AP', password = '', max_c = 1):
 	ap = network.WLAN(network.AP_IF)
@@ -48,11 +71,6 @@ def setUpAP(name = 'Micropython-AP', password = '', max_c = 1):
 		ap.config(essid = name, authmode = network.AUTH_WPA_WPA2_PSK, password = password, max_clients = max_c)
 	ap.active(True)
 	return ap
-
-# 为各设备分配GPIO并创建对象
-timer_screen = tm1637.TM1637(clk=Pin(0), dio=Pin(1))
-beeper = Buzzer(pin_port = Pin(2, Pin.OUT))
-oled_screen = ssd1306.SSD1306_I2C(128, 64, I2C(scl=Pin(3), sda=Pin(4)))
 
 def selfCheck(beeper, oled_screen, num_screen):
 	num_screen.write([127, 255, 127, 127]) # 数码管显示88:88
@@ -72,3 +90,65 @@ def selfCheck(beeper, oled_screen, num_screen):
 	oled_screen.text('WAITING', 32, 9)
 	oled_screen.show()
 	beeper.beep(0.5)
+
+def showImage(oled_screen):
+	lattice_list = open('image_lattice.json', 'r')
+	lattice = json.load(lattice_list)
+	lattice_list.close()
+
+	oled_screen.fill(0)
+	for p in lattice:
+		oled_screen.pixel(p[0], p[1], 1)
+	oled_screen.show()
+
+	del lattice
+
+#未完成的功能
+def countDown(minute, num_screen, beeper):
+	num_screen.numbers(minute, 0)
+	time.sleep(1)
+	for m in range(minute - 1, -1, -1):
+		for s in range(59, -1, -1):
+			rest_time = 1.0
+			num_screen.numbers(m, s)
+			if m == 0:
+				if s <= 5:
+					for i in range(4):
+						beeper.off()
+						time.sleep(0.1)
+						beeper.on()
+						time.sleep(0.15)
+					rest_time -= 1.0
+				elif s <= 10:
+					for _ in range(2):
+						beeper.off()
+						time.sleep(0.1)
+						beeper.on()
+						time.sleep(0.4)
+					rest_time -= 1.0
+				else:
+					beeper.off()
+					time.sleep(0.1)
+					beeper.on()
+					rest_time -= 0.1
+			else:
+				if s % 2 == 0:
+					beeper.off()
+					time.sleep(0.1)
+					beeper.on()
+					rest_time -= 0.1
+			time.sleep(rest_time)
+
+# 主函数
+def main():
+	# 为各设备分配GPIO并创建对象
+	timer_screen = tm1637.TM1637(clk=Pin(0), dio=Pin(1))
+	beeper = Buzzer(pin_port = Pin(2, Pin.OUT))
+	oled_screen = ssd1306.SSD1306_I2C(128, 64, I2C(scl=Pin(3), sda=Pin(4)))
+	oled_screen.contrast(255) # oled亮度设为最大 255
+
+	selfCheck(beeper, oled_screen, timer_screen) # 进行自检
+	ap_obj = setUpAP(name = 'C4_Bomb', password = '10029930abc') # 打开热点
+	minute = rcStart(ap_obj, beeper) # 打开套接字 等待接收http头并开始 等待期间主线程阻塞
+	showImage(oled_screen)
+	countDown(minute, timer_screen, beeper)
