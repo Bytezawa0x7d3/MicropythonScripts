@@ -82,7 +82,7 @@ def selfCheck(beeper, oled_screen, num_screen):
 		time.sleep(0.2)
 	time.sleep(0.8)
 
-	num_screen.write([0, 0, 0, 0]) # 清空数码管 OLED显示'Ready...'
+	num_screen.write([0, 0, 0, 0]) # 清空数码管 OLED显示字符
 	oled_screen.fill(0)
 	oled_screen.text('Ready...', 32, 0)
 	oled_screen.show()
@@ -91,53 +91,68 @@ def selfCheck(beeper, oled_screen, num_screen):
 	oled_screen.show()
 	beeper.beep(0.5)
 
-def showImage(oled_screen):
+def showImage(oled_screen, image_name):
+	# OLED上显示点阵
 	lattice_list = open('image_lattice.json', 'r')
-	lattice = json.load(lattice_list)
-	lattice_list.close()
+	lattice = json.load(lattice_list) #读取相同位置下的json文件
+	lattice_list.close() # 文件内容为类似 [[x, y], [x, y]] 的二位坐标阵列 
 
-	oled_screen.fill(0)
-	for p in lattice:
-		oled_screen.pixel(p[0], p[1], 1)
-	oled_screen.show()
+	oled_screen.fill(0) # 清空屏幕防止重叠显示
+	for p in lattice[image_name]:
+		oled_screen.pixel(p[0], p[1], 1) # 遍历二维坐标列表 逐个显示 
+	oled_screen.show() # 最终在OLED上点亮
 
 	del lattice
 
-#未完成的功能
 def countDown(minute, num_screen, beeper):
+	# 参数minute为一个int形式的整数 代表倒计时分钟数
 	num_screen.numbers(minute, 0)
 	time.sleep(1)
+	# 循环刷新数码管 显示倒计时时间
 	for m in range(minute - 1, -1, -1):
 		for s in range(59, -1, -1):
 			rest_time = 1.0
 			num_screen.numbers(m, s)
 			if m == 0:
 				if s <= 5:
-					for i in range(4):
-						beeper.off()
-						time.sleep(0.1)
-						beeper.on()
+					for _ in range(4):
+						beeper.beep(0.1)
 						time.sleep(0.15)
 					rest_time -= 1.0
 				elif s <= 10:
 					for _ in range(2):
-						beeper.off()
-						time.sleep(0.1)
-						beeper.on()
+						beeper.beep(0.1)
 						time.sleep(0.4)
 					rest_time -= 1.0
 				else:
-					beeper.off()
-					time.sleep(0.1)
-					beeper.on()
+					beeper.beep(0.1)
 					rest_time -= 0.1
 			else:
 				if s % 2 == 0:
-					beeper.off()
-					time.sleep(0.1)
-					beeper.on()
+					beeper.beep(0.1)
 					rest_time -= 0.1
 			time.sleep(rest_time)
+
+	for _ in range(5):
+		num_screen.show('boon')
+		beeper.beep(0.2)
+		num_screen.write([0, 0, 0, 0])
+		time.sleep(0.2)
+
+def timeIsUp(num_screen):
+	time.sleep(1)
+	for _ in range(4):
+		num_screen.show('You')
+		time.sleep(0.5)
+		num_screen.show('Are')
+		time.sleep(0.5)
+		num_screen.show('Fool')
+		time.sleep(0.5)
+
+def powerOff(oled_screen, num_screen, beeper):
+	oled_screen.poweroff()
+	num_screen.write([0, 0, 0, 0])
+	beeper.stopBeep()
 
 # 主函数
 def main():
@@ -150,5 +165,8 @@ def main():
 	selfCheck(beeper, oled_screen, timer_screen) # 进行自检
 	ap_obj = setUpAP(name = 'C4_Bomb', password = '10029930abc') # 打开热点
 	minute = rcStart(ap_obj, beeper) # 打开套接字 等待接收http头并开始 等待期间主线程阻塞
-	showImage(oled_screen)
-	countDown(minute, timer_screen, beeper)
+	showImage(oled_screen, 'countdown') # 收到http后OLED显示点阵图片
+	countDown(minute, timer_screen, beeper) # 数码管开始计时
+	showImage(oled_screen, 'timeisup') # 显示结束后的点阵图
+	timeIsUp(timer_screen)
+	powerOff(oled_screen, timer_screen, beeper)
